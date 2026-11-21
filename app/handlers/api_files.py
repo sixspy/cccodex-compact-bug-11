@@ -1,5 +1,6 @@
 from app.handlers.base import BaseHandler
 from app.services import files as files_svc
+from app.services import merge_gate
 from app.services.errors import ServiceError
 
 
@@ -11,6 +12,8 @@ class ApiFiles(BaseHandler):
             {
                 "items": files_svc.list_files(table),
                 "stats": files_svc.table_stats(),
+                "threshold_kb": merge_gate.threshold_kb(),
+                "threshold_bytes": merge_gate.threshold_bytes(),
             }
         )
 

@@ -62,22 +62,65 @@ CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS gate_checks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  plan_id INTEGER NOT NULL,
+  threshold_kb INTEGER NOT NULL,
+  threshold_bytes INTEGER NOT NULL,
+  total_files INTEGER NOT NULL DEFAULT 0,
+  accepted_files INTEGER NOT NULL DEFAULT 0,
+  rejected_files INTEGER NOT NULL DEFAULT 0,
+  result TEXT NOT NULL CHECK (result IN ('通过','拦截','全拒','失准','空计划')),
+  chip TEXT NOT NULL,
+  message TEXT NOT NULL DEFAULT '',
+  accepted_ids TEXT NOT NULL DEFAULT '[]',
+  rejected_ids TEXT NOT NULL DEFAULT '[]',
+  note TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS gate_rejections (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  gate_id INTEGER NOT NULL,
+  plan_id INTEGER NOT NULL,
+  file_id INTEGER NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  threshold_bytes INTEGER NOT NULL,
+  reason TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS gate_notes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  plan_id INTEGER NOT NULL,
+  note TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 
 def connect(db_path: str | None = None) -> sqlite3.Connection:
     path = db_path or Config.database()
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path, check_same_thread=False)
+    conn = sqlite3.connect(path, timeout=30, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 30000")
     return conn
 
 
 @contextmanager
-def get_db(db_path: str | None = None):
+def get_db(db_path: str | None = None, immediate: bool = False):
+    """Open a connection; ``immediate=True`` takes the write lock up front.
+
+    合并入口的闸检与落库必须在同一个写事务里完成，否则两名仓管并发
+    启动合并会各自写入闸检凭证并互相覆盖。
+    """
     conn = connect(db_path)
     try:
+        if immediate:
+            conn.execute("BEGIN IMMEDIATE")
         yield conn
         conn.commit()
     except Exception:

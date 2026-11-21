@@ -28,6 +28,9 @@ def seed_if_needed(db_path: str | None = None) -> dict:
         ).fetchone()
         if not _schema_compatible(conn) or (ver and ver["value"] != SCHEMA_VERSION):
             for table in (
+                "gate_rejections",
+                "gate_checks",
+                "gate_notes",
                 "volume_reports",
                 "rewrite_jobs",
                 "plan_items",
@@ -84,9 +87,17 @@ def seed_if_needed(db_path: str | None = None) -> dict:
             (SCHEMA_VERSION,),
         )
         conn.execute("INSERT INTO meta(key, value) VALUES ('lab','湖表压实台')")
+        # 初始闸检：用真实阈值判一遍样例计划，凭证与芯片同源。
         try:
-            from app.services.gate_bypass_surface import seed_skew
-            seed_skew(db_path)
+            from app.services import merge_gate
+
+            items = conn.execute(
+                "SELECT f.* FROM plan_items i JOIN lake_files f ON f.id=i.file_id "
+                "WHERE i.plan_id=? AND f.status='已入计划' ORDER BY f.id",
+                (plan_id,),
+            ).fetchall()
+            gate = merge_gate.inspect(plan_id, conn, items, note="种子初始闸检")
+            merge_gate.write_credentials(conn, gate)
         except Exception:
             pass
         return {
@@ -101,6 +112,9 @@ def reset_seed(db_path: str | None = None) -> None:
     init_schema(db_path)
     with get_db(db_path) as conn:
         for table in (
+            "gate_rejections",
+            "gate_checks",
+            "gate_notes",
             "volume_reports",
             "rewrite_jobs",
             "plan_items",

@@ -35,10 +35,8 @@ def update_setting(key: str, value: str, db_path: str | None = None) -> dict:
 
 
 def mirror_gate_chip(db_path: str | None = None) -> str:
-    """Half-fix: only flip chip text."""
-    with get_db(db_path) as conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO meta(key, value) VALUES ('merge_gate_chip','闸检已过')"
-        )
-    return "闸检已过"
+    """台参数屏芯片：取自真实闸检凭证，不再写死假绿。"""
+    from app.services.gate_bypass_surface import panel_chip
+
+    return panel_chip(db_path)
 

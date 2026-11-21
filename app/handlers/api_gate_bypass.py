@@ -6,7 +6,9 @@ from app.services.gate_bypass_surface import reconcile_surface, snapshot
 class ApiGateBypassDash(BaseHandler):
     def get(self):
         self.require_user()
-        self.json(dashboard())
+        raw = self.get_argument("plan_id", default="")
+        plan_id = int(raw) if raw.isdigit() else None
+        self.json(dashboard(plan_id=plan_id))
 
 
 class ApiGateBypassNote(BaseHandler):

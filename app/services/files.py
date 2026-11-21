@@ -1,12 +1,14 @@
-"""小文件清单：登记、列表、作废。"""
+"""小文件清单：登记、列表、作废；列表带闸检阈值与被拒原因。"""
 from __future__ import annotations
 
 from app.db import get_db
+from app.services import merge_gate
 from app.services.errors import ServiceError
 
 
 def list_files(table_name: str | None = None, db_path: str | None = None) -> list[dict]:
     with get_db(db_path) as conn:
+        kb, thr = merge_gate.threshold_value(conn)
         if table_name:
             rows = conn.execute(
                 "SELECT * FROM lake_files WHERE table_name=? ORDER BY id",
@@ -14,7 +16,43 @@ def list_files(table_name: str | None = None, db_path: str | None = None) -> lis
             ).fetchall()
         else:
             rows = conn.execute("SELECT * FROM lake_files ORDER BY id").fetchall()
-        return [dict(r) for r in rows]
+
+        out = []
+        for r in rows:
+            item = dict(r)
+            size = int(item["size_bytes"])
+            item["threshold_kb"] = kb
+            item["threshold_bytes"] = thr
+            item["below_threshold"] = size < thr
+            reason = ""
+            if size <= 0:
+                reason = f"体积非法：{size} 字节"
+            elif size < thr:
+                reason = f"低于阈值：{size} 字节 < {thr} 字节"
+            item["reject_reason"] = reason
+            # 与闸检凭证同源：被拒件取该件最近一次真实闸检记下的原因。
+            hit = conn.execute(
+                "SELECT r.reason, r.gate_id FROM gate_rejections r "
+                "JOIN gate_checks g ON g.id=r.gate_id "
+                "WHERE r.file_id=? AND g.id=(SELECT MAX(g2.id) FROM gate_checks g2 "
+                " WHERE g2.plan_id=g.plan_id) ORDER BY r.id DESC LIMIT 1",
+                (item["id"],),
+            ).fetchone()
+            if hit:
+                item["reject_reason"] = hit["reason"]
+                item["gate_status"] = "已拒"
+                item["gate_id"] = hit["gate_id"]
+            elif reason:
+                item["gate_status"] = "低于阈值"
+                item["gate_id"] = None
+            else:
+                item["gate_status"] = "合格"
+                item["gate_id"] = None
+            item["gate_chip"] = (
+                "闸检已过" if not reason else "闸检拦下低阈件"
+            )
+            out.append(item)
+        return out
 
 
 def register_file(
@@ -69,7 +107,10 @@ def table_stats(db_path: str | None = None) -> list[dict]:
         rows = conn.execute(
             "SELECT table_name, COUNT(*) AS file_count, "
             "SUM(size_bytes) AS total_bytes, "
-            "SUM(CASE WHEN status='碎文件' THEN 1 ELSE 0 END) AS loose_count "
+            "SUM(CASE WHEN status='碎文件' THEN 1 ELSE 0 END) AS loose_count, "
+            "SUM(CASE WHEN size_bytes < ("
+            " SELECT CAST(value AS INTEGER)*1024 FROM lab_settings "
+            " WHERE key='compact_threshold_kb') THEN 1 ELSE 0 END) AS low_count "
             "FROM lake_files GROUP BY table_name ORDER BY table_name"
         ).fetchall()
         return [dict(r) for r in rows]

@@ -10,7 +10,7 @@ from app.handlers.api_plans import (
     ApiPlans,
 )
 from app.handlers.api_reconcile import ApiReconcileReports
-from app.handlers.api_rewrite import ApiRewriteJobs, ApiRewriteStart
+from app.handlers.api_rewrite import ApiPlanGate, ApiRewriteJobs, ApiRewriteStart
 from app.handlers.api_settings import ApiSettings
 from app.handlers.api_gate_bypass import (
     ApiGateBypassDash,
@@ -49,6 +49,7 @@ def make_app() -> tornado.web.Application:
             (r"/api/plans/([0-9]+)/publish", ApiPlanPublish),
             (r"/api/rewrite/jobs", ApiRewriteJobs),
             (r"/api/rewrite/plans/([0-9]+)/start", ApiRewriteStart),
+            (r"/api/plans/([0-9]+)/gate", ApiPlanGate),
             (r"/api/reconcile/reports", ApiReconcileReports),
             (r"/api/settings", ApiSettings),
             (r"/api/gate_bypass/dash", ApiGateBypassDash),
